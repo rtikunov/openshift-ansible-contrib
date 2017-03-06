@@ -45,11 +45,12 @@ if sync_type == ''
   end
 end
 
-override_box_url = ''
+override_box_url = '~/boxes/centos-7.box'
 if deployment_type == 'openshift-enterprise'
   box_name = 'rhel/7.2'
 elsif origin_os == 'centos'
-  box_name = 'centos/7'
+  #box_name = 'centos/7'
+  box_name = override_box_url
 else
   box_name = 'fedora/25-cloud-base'
 end
@@ -117,20 +118,38 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     master1.hostmanager.aliases = %w(master1)
   end
 
+  config.vm.define "master2" do |master2|
+    master2.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 1}"
+    master2.vm.hostname = "master2.example.com"
+    master2.hostmanager.aliases = %w(master2)
+  end
+
+  config.vm.define "master3" do |master3|
+    master3.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 2}"
+    master3.vm.hostname = "master3.example.com"
+    master3.hostmanager.aliases = %w(master3)
+  end
+
   config.vm.define "node1" do |node1|
-    node1.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 1}"
+    node1.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 3}"
     node1.vm.hostname = "node1.example.com"
     node1.hostmanager.aliases = %w(node1)
   end
 
   config.vm.define "node2" do |node2|
-    node2.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 2}"
+    node2.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 4}"
     node2.vm.hostname = "node2.example.com"
     node2.hostmanager.aliases = %w(node2)
   end
 
+  config.vm.define "lb1" do |lb1|
+    lb1.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 5}"
+    lb1.vm.hostname = "lb1.example.com"
+    lb1.hostmanager.aliases = %w(lb1 oshift oshift.example.com)
+  end
+
   config.vm.define "admin1" do |admin1|
-    admin1.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 3}"
+    admin1.vm.network :private_network, ip: "#{NETWORK_BASE}.#{INTEGRATION_START_SEGMENT + 6}"
     admin1.vm.hostname = "admin1.example.com"
     admin1.hostmanager.aliases = %w(admin1)
 
@@ -144,14 +163,14 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     admin1.vm.synced_folder ".vagrant", "/home/vagrant/.hidden", type: sync_type
 
     ansible_groups = {
-      OSEv3: ["master1", "node1", "node2"],
-      'OSEv3:children': ["masters", "nodes", "etcd", "nfs"],
+      OSEv3: ["master1", "master2", "master3", "node1", "node2"],
+      'OSEv3:children': ["masters", "nodes", "etcd", "nfs", "lb"],
       'OSEv3:vars': {
         ansible_become: true,
         ansible_ssh_user: 'vagrant',
         deployment_type: deployment_type,
         openshift_master_identity_providers: "[{'name': 'htpasswd_auth', 'login': 'true', 'challenge': 'true', 'kind': 'HTPasswdPasswordIdentityProvider', 'filename': '/etc/origin/master/htpasswd'}]",
-        openshift_master_htpasswd_users: "{'admin': '$apr1$nWG7vwhy$jCMCBmBrW3MEYmCFCckYk1'}",
+        openshift_master_htpasswd_users: "{'admin': '$apr1$k4ULcH2w$oJWEfuRiJ6x5JRtC0lFMU1', 'developer': '$apr1$a81.5oI8$ZjvUM3KFCje0Jd0MuQmRp0'}",
         openshift_master_default_subdomain: 'apps.example.com',
         osm_default_node_selector: 'region=primary',
         openshift_hosted_registry_selector: 'region=infra',
@@ -162,14 +181,18 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         openshift_hosted_registry_storage_nfs_directory: '/srv/nfs',
         openshift_hosted_registry_storage_volume_name: 'registry',
         openshift_hosted_registry_storage_volume_size: '2Gi',
+	openshift_master_cluster_method: 'native',
+	openshift_master_cluster_hostname: 'oshift.example.com',
+	openshift_master_cluster_public_hostname: 'oshift.example.com',
         rhsm_user: "#{ENV.fetch('SUB_USERNAME', '')}",
         rhsm_password: "#{ENV.fetch('SUB_PASSWORD', '')}",
         rhsm_pool: rhsm_pool,
       },
-      etcd: ["master1"],
+      etcd: ["master1", "master2", "master3"],
       nfs: ["admin1"],
-      masters: ["master1"],
-      nodes: ["master1", "node1", "node2"],
+      masters: ["master1", "master2", "master3"],
+      nodes: ["node1", "node2"],
+      lb: ["lb1"],
     }
 
     ansible_host_vars = {
@@ -180,19 +203,40 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         ansible_host: '192.168.50.20',
         ansible_ssh_private_key_file: "/home/vagrant/.ssh/master1.key"
       },
-      node1: {
+      master2:  {
         openshift_ip: '192.168.50.21',
-        openshift_node_labels: "\"{'region': 'primary', 'zone': 'east'}\"",
+        openshift_node_labels: "\"{'region': 'infra', 'zone': 'default'}\"",
         openshift_schedulable: true,
         ansible_host: '192.168.50.21',
+        ansible_ssh_private_key_file: "/home/vagrant/.ssh/master2.key"
+      },
+      master3:  {
+        openshift_ip: '192.168.50.22',
+        openshift_node_labels: "\"{'region': 'infra', 'zone': 'default'}\"",
+        openshift_schedulable: true,
+        ansible_host: '192.168.50.22',
+        ansible_ssh_private_key_file: "/home/vagrant/.ssh/master3.key"
+      },
+      node1: {
+        openshift_ip: '192.168.50.23',
+        openshift_node_labels: "\"{'region': 'primary', 'zone': 'east'}\"",
+        openshift_schedulable: true,
+        ansible_host: '192.168.50.23',
         ansible_ssh_private_key_file: "/home/vagrant/.ssh/node1.key"
       },
       node2: {
-        openshift_ip: '192.168.50.22',
+        openshift_ip: '192.168.50.24',
         openshift_node_labels: "\"{'region': 'primary', 'zone': 'west'}\"",
         openshift_schedulable: true,
-        ansible_host: '192.168.50.22',
+        ansible_host: '192.168.50.24',
         ansible_ssh_private_key_file: "/home/vagrant/.ssh/node2.key"
+      },
+      lb1: {
+        openshift_ip: '192.168.50.25',
+        openshift_node_labels: "\"{'region': 'primary', 'zone': 'default'}\"",
+        openshift_schedulable: true,
+        ansible_host: '192.168.50.25',
+        ansible_ssh_private_key_file: "/home/vagrant/.ssh/lb1.key"
       },
       admin1: {
         ansible_connection: 'local',

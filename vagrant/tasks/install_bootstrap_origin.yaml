@@ -19,11 +19,13 @@
 - yum:
     name: "{{ item }}"
     enablerepo: epel
-    state: present
+    state: latest
   when: "{{ ansible_distribution != 'Fedora' }}"
   with_items:
   - ansible
   - pyOpenSSL
+  - telnet
+  - bind-utils
 - dnf:
     name: "{{ item }}"
     enablerepo: epel
